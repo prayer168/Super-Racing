@@ -91,6 +91,20 @@
   #startScreen .tag { font-size: 13px; letter-spacing: 5px; color:#ff5b5b; opacity:.9; margin-top:2px;
     text-shadow: 0 0 10px rgba(255,60,60,.5); }
 
+  /* 難度選擇 */
+  .diffWrap { margin-top:16px; text-align:center; }
+  .diffLabel { font-size:12px; letter-spacing:3px; color:#cfe6ff; opacity:.7; margin-bottom:8px; }
+  .diffRow { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+  .diffChip { padding:8px 16px; border-radius:20px; font-weight:800; font-size:15px; cursor:pointer;
+    background:rgba(255,255,255,.07); border:2px solid rgba(255,255,255,.18); color:#dfeaf5; }
+  .diffChip.sel { color:#06121f; }
+  .diffDesc { font-size:12px; opacity:.8; margin-top:8px; min-height:16px; }
+  .sceneWrap { margin-top:14px; display:flex; align-items:center; gap:10px; justify-content:center; }
+  .sceneWrap .diffLabel { margin-bottom:0; }
+  #sceneSelect { padding:8px 14px; border-radius:18px; font-size:14px; font-weight:700; max-width:230px;
+    background:rgba(255,255,255,.08); color:#eaf2fb; border:2px solid rgba(120,180,255,.45); cursor:pointer; }
+  #sceneSelect option { background:#0d1424; color:#eaf2fb; }
+
   /* 按鈕列 + 車庫 */
   .btnrow { display:flex; gap:12px; margin-top:18px; flex-wrap:wrap; justify-content:center; }
   .btn.ghost { background:transparent; color:#cfe6ff; border:2px solid rgba(120,180,255,.55); box-shadow:none; }
@@ -101,8 +115,12 @@
   .carCard { width:150px; background:rgba(15,22,35,.88); border:1px solid rgba(255,255,255,.12);
     border-radius:14px; padding:12px; text-align:left; }
   .carCard.sel { border-color:#19f0ff; box-shadow:0 0 16px rgba(25,240,255,.35); }
-  .carSwatch { height:44px; border-radius:8px; margin-bottom:8px; box-shadow:inset 0 -10px 16px rgba(0,0,0,.45); }
-  .carName { font-weight:800; font-size:17px; margin-bottom:8px; }
+  .carArtBox { height:52px; border-radius:8px; margin-bottom:8px; padding:4px 6px;
+    background:linear-gradient(180deg,#101726,#070b12); display:flex; align-items:center; justify-content:center;
+    box-shadow:inset 0 -8px 14px rgba(0,0,0,.5); }
+  .carArtBox svg { width:100%; height:46px; }
+  .carName { font-weight:800; font-size:16px; margin-bottom:8px; }
+  .carName small { display:block; font-size:9px; letter-spacing:1.5px; opacity:.55; font-weight:700; }
   .stat { display:flex; align-items:center; gap:6px; font-size:11px; opacity:.9; margin:4px 0; }
   .stat span { width:30px; flex:none; }
   .stat b { flex:1; height:6px; background:rgba(255,255,255,.12); border-radius:3px; overflow:hidden; }
@@ -270,6 +288,17 @@
       </g>
     </svg>
 
+    <div class="diffWrap">
+      <div class="diffLabel">難度</div>
+      <div class="diffRow" id="diffRow"></div>
+      <div class="diffDesc" id="diffDesc"></div>
+    </div>
+
+    <div class="sceneWrap">
+      <span class="diffLabel">場景</span>
+      <select id="sceneSelect"></select>
+    </div>
+
     <div class="btnrow">
       <button class="btn" id="startBtn">開始遊戲</button>
       <button class="btn ghost" id="garageBtn">🔧 車庫</button>
@@ -377,11 +406,9 @@
     { name:'臺灣 · 墾丁珊瑚礁海岸', sky:['#4f9fd6','#bfe9ff'], ground:'#cdb98a', light:1.0,
       bg:{kind:'sea', col:'#1f7fa0'},                          scen:['palm','rock','bush'] },
   ];
-  const SCENE_LEN = 900;                  // 每個場景的距離長度(約 35~45 秒切換一次)
-  function sceneState() {
-    const t = distance / SCENE_LEN, cur = (t | 0) % SCENES.length, frac = t - (t | 0);
-    return { cur, nxt: (cur + 1) % SCENES.length, blend: frac < 0.82 ? 0 : (frac - 0.82) / 0.18 };
-  }
+  const SCENE_HOLD = 60;    // 在一個場景停留秒數,之後隨機切換
+  const SCENE_FADE = 2.5;   // 轉場淡入秒數
+  function sceneState() { return { cur: curSceneIdx, nxt: nxtSceneIdx, blend: sceneBlend }; }
   function currentScene() { const s = sceneState(); return SCENES[s.blend < 0.5 ? s.cur : s.nxt]; }
   function getEnv() {
     const s = sceneState(), a = SCENES[s.cur], b = SCENES[s.nxt], k = s.blend;
@@ -396,25 +423,38 @@
       curve = 0, curveTarget = 0, curveTimer = 0,
       phase = 0, scenery = [], sceneryTimer = 0,
       nitroEnergy = 100, coins = 0, pickups = [], pickupTimer = 0,
-      particles = [], dyingTimer = 0, flash = 0;
+      particles = [], dyingTimer = 0, flash = 0,
+      curSceneIdx = 0, nxtSceneIdx = 0, sceneBlend = 0, sceneElapsed = 0;
   best = +(localStorage.getItem('sr_best') || 0);
 
   // ---- 養成系統:永久存檔 + 車庫 ----
   const CARS = [
-    { id:'falcon',  name:'獵隼', color:'#ff3b3b', price:0,    top:1.00, accel:1.00, handling:1.00 },
-    { id:'viper',   name:'毒蛇', color:'#3bd17a', price:150,  top:1.05, accel:1.10, handling:1.10 },
-    { id:'bolt',    name:'閃電', color:'#3fb4ff', price:500,  top:1.12, accel:1.18, handling:1.16 },
-    { id:'phantom', name:'幻影', color:'#c084fc', price:1200, top:1.20, accel:1.22, handling:1.22 },
-    { id:'inferno', name:'煉獄', color:'#ff8a3d', price:2500, top:1.30, accel:1.35, handling:1.30 },
+    { id:'falcon',  name:'獵隼', code:'FALCON GT',   color:'#ff3b3b', price:0,    top:1.00, accel:1.00, handling:1.00 },
+    { id:'viper',   name:'毒蛇', code:'VIPER RS',    color:'#3bd17a', price:150,  top:1.05, accel:1.10, handling:1.10 },
+    { id:'bolt',    name:'閃電', code:'BOLT X',      color:'#3fb4ff', price:500,  top:1.12, accel:1.18, handling:1.16 },
+    { id:'phantom', name:'幻影', code:'PHANTOM EV',  color:'#c084fc', price:1200, top:1.20, accel:1.22, handling:1.22 },
+    { id:'inferno', name:'煉獄', code:'INFERNO GTR', color:'#ff8a3d', price:2500, top:1.30, accel:1.35, handling:1.30 },
+  ];
+  // ---- 難度等級:影響車流密度、速度、金幣倍率 ----
+  const DIFFS = [
+    { id:'novice', name:'初階',   color:'#3bd17a', spawnMul:1.55, speedMul:0.80, coinMul:1.0, desc:'車流稀疏、速度平緩,輕鬆上手' },
+    { id:'easy',   name:'入門',   color:'#4fd1ff', spawnMul:1.15, speedMul:0.92, coinMul:1.3, desc:'標準節奏,適合練手感' },
+    { id:'hard',   name:'進階',   color:'#ffb24d', spawnMul:0.82, speedMul:1.08, coinMul:1.8, desc:'車流密集、速度快,考驗反應' },
+    { id:'god',    name:'神人級', color:'#ff4d6d', spawnMul:0.55, speedMul:1.28, coinMul:2.6, desc:'瘋狂車流、極速狂飆,金幣加倍' },
   ];
   let totalCoins = +(localStorage.getItem('sr_coins') || 0);
   let owned = JSON.parse(localStorage.getItem('sr_owned') || '["falcon"]');
   let selectedCarId = localStorage.getItem('sr_car') || 'falcon';
+  let selectedDiffId = localStorage.getItem('sr_diff') || 'easy';
+  let selectedScene = localStorage.getItem('sr_scene') || 'random';
   function currentCar() { return CARS.find(c => c.id === selectedCarId) || CARS[0]; }
+  function currentDiff() { return DIFFS.find(d => d.id === selectedDiffId) || DIFFS[1]; }
   function saveProgress() {
     localStorage.setItem('sr_coins', totalCoins);
     localStorage.setItem('sr_owned', JSON.stringify(owned));
     localStorage.setItem('sr_car', selectedCarId);
+    localStorage.setItem('sr_diff', selectedDiffId);
+    localStorage.setItem('sr_scene', selectedScene);
   }
 
   // ---- 音效(Web Audio 即時合成,免外部音檔)----
@@ -490,6 +530,9 @@
     nitro = false; traffic = []; spawnTimer = 1.2; dashOffset = 0;
     curve = 0; curveTarget = 0; curveTimer = 0;
     phase = 0; scenery = []; sceneryTimer = 0;
+    // 起始場景:依首頁選擇,'random' 則隨機
+    const startIdx = selectedScene === 'random' ? (Math.random() * SCENES.length | 0) : (+selectedScene || 0);
+    curSceneIdx = startIdx; nxtSceneIdx = startIdx; sceneBlend = 0; sceneElapsed = 0;
     nitroEnergy = 100; coins = 0; pickups = []; pickupTimer = 0;
     particles = []; dyingTimer = 0; flash = 0;
   }
@@ -569,12 +612,13 @@
     // 速度控制 + 氮氣:有能量才能用,用完要回充
     nitro = !!keys[' '] && nitroEnergy > 0;
     nitroEnergy = nitro ? Math.max(0, nitroEnergy - dt * 38) : Math.min(100, nitroEnergy + dt * 13);
-    const car = currentCar(); // 所選車輛的性能倍率
+    const car = currentCar(), diff = currentDiff(); // 車輛性能 × 難度倍率
+    const spd = car.top * diff.speedMul;
     // 自動巡航:會自己保持在 cruise 高速,換道/放開油門都不掉速,只有煞車才慢
-    const cruise = (SPEED_BASE + Math.min(distance * 0.006, 200)) * car.top;
+    const cruise = (SPEED_BASE + Math.min(distance * 0.006, 200)) * spd;
     if (keys['ArrowDown']) targetSpeed = SPEED_MIN;              // 只有按煞車才降速
-    else if (nitro) targetSpeed = NITRO_SPEED * car.top;
-    else if (keys['ArrowUp']) targetSpeed = SPEED_MAX * car.top;
+    else if (nitro) targetSpeed = NITRO_SPEED * spd;
+    else if (keys['ArrowUp']) targetSpeed = SPEED_MAX * spd;
     else targetSpeed = Math.max(speed, cruise);                 // 維持當前速度(取較高),不主動降
     // 加速比煞車快,手感更俐落;加速受車輛 accel 影響
     const rate = (targetSpeed > speed ? 4.5 * car.accel : 3) * dt;
@@ -599,8 +643,15 @@
     }
     curve += (curveTarget - curve) * Math.min(dt * 0.9, 1);
 
-    // 時間軸推進(晝夜循環,隨距離前進)
-    phase = (distance / 3500) % 1;
+    // 場景:停留滿 SCENE_HOLD 秒 → 隨機切換到別的場景(平滑轉場)
+    sceneElapsed += dt;
+    if (sceneBlend > 0) {                       // 轉場中
+      sceneBlend += dt / SCENE_FADE;
+      if (sceneBlend >= 1) { curSceneIdx = nxtSceneIdx; sceneBlend = 0; sceneElapsed = 0; }
+    } else if (sceneElapsed >= SCENE_HOLD) {     // 停留滿一分鐘 → 隨機挑一個別的場景
+      let n = curSceneIdx; while (n === curSceneIdx) n = (Math.random() * SCENES.length) | 0;
+      nxtSceneIdx = n; sceneBlend = 0.001;
+    }
 
     // 沿路風景生成 + 前進(依目前場景的植被清單)
     sceneryTimer -= dt;
@@ -623,7 +674,7 @@
       cn.p += speed * dt * 0.0016 + speed * dt * 0.00045;
       if (!cn.got && cn.p >= PLAYER_P - 0.05 && cn.p <= PLAYER_P + 0.06) {
         if (Math.abs(laneX(cn.lane, cn.p) - playerX) < playerHalfWidth() * 1.5) {
-          cn.got = true; coins += 2; score += 25; SFX.coin();
+          cn.got = true; coins += Math.round(2 * diff.coinMul); score += 25; SFX.coin();
         }
       }
     }
@@ -631,7 +682,7 @@
 
     // 生成車流(速度越快越密;難度曲線放緩,開局較輕鬆)
     spawnTimer -= dt;
-    const interval = Math.max(0.5, 1.45 - distance * 0.00006);
+    const interval = Math.max(0.5, 1.45 - distance * 0.00006) * diff.spawnMul;
     if (spawnTimer <= 0) { spawn(); spawnTimer = interval * (0.6 + Math.random()*0.8); }
 
     // 更新車流深度(玩家速度 - 對方速度 = 相對逼近)
@@ -679,7 +730,7 @@
   function showGameOver() {
     state = 'over';
     if (Math.round(score) > best) { best = Math.round(score); localStorage.setItem('sr_best', best); }
-    const distBonus = Math.floor(distance / 150);  // 跑越遠額外金幣
+    const distBonus = Math.floor(distance / 150 * currentDiff().coinMul);  // 跑越遠額外金幣(難度加成)
     const runCoins = coins + distBonus;
     totalCoins += runCoins; saveProgress();         // 本局金幣存入總金幣
     document.getElementById('finalScore').textContent = Math.round(score);
@@ -1165,8 +1216,8 @@
       const card = document.createElement('div');
       card.className = 'carCard' + (isSel ? ' sel' : '');
       card.innerHTML =
-        `<div class="carSwatch" style="background:${c.color}"></div>
-         <div class="carName">${c.name}</div>
+        `<div class="carArtBox">${carArtSVG(c)}</div>
+         <div class="carName">${c.name} <small>${c.code}</small></div>
          ${bar('極速', c.top)}${bar('加速', c.accel)}${bar('操控', c.handling)}
          <button class="cbtn">${isSel ? '✓ 使用中' : (isOwned ? '選用' : '🪙 ' + c.price)}</button>`;
       const btn = card.querySelector('.cbtn');
@@ -1185,12 +1236,78 @@
       list.appendChild(card);
     }
   }
+  // 每台車的專屬側面造型(SVG),依車款不同
+  function carArtSVG(car) {
+    const c = car.color, dk = mix(c, '#000', 0.42), hl = mix(c, '#fff', 0.38), gl = '#0c1a2a';
+    const wheel = (x, r) => `<circle cx="${x}" cy="76" r="${r}" fill="#0c0e12"/><circle cx="${x}" cy="76" r="${r*0.5}" fill="#23262e"/><circle cx="${x}" cy="76" r="${r*0.5}" fill="none" stroke="${c}" stroke-width="2.2"/><circle cx="${x}" cy="76" r="2" fill="#9aa"/>`;
+    let inner = '';
+    if (car.id === 'falcon') {           // 經典 GT 跑車
+      inner = `<rect x="12" y="48" width="18" height="5" rx="2" fill="${dk}"/>
+        <path d="M16,64 C22,48 56,44 88,43 L118,35 C150,30 176,34 200,52 L200,64 Z" fill="${c}" stroke="${dk}" stroke-width="2"/>
+        <path d="M98,42 C114,35 142,36 164,48 L122,50 Z" fill="${gl}"/>
+        <path d="M28,58 L190,55" stroke="${hl}" stroke-width="1.6" opacity=".7" fill="none"/>
+        <circle cx="196" cy="56" r="3" fill="#fff3b0"/>${wheel(58,15)}${wheel(152,15)}`;
+    } else if (car.id === 'viper') {     // 長車頭低底盤肌肉跑車
+      inner = `<path d="M10,64 C16,54 46,52 80,50 L152,45 C178,43 200,48 202,58 L202,64 Z" fill="${c}" stroke="${dk}" stroke-width="2"/>
+        <path d="M98,49 L126,41 L152,46 Z" fill="${gl}"/>
+        <path d="M16,60 L198,55" stroke="${hl}" stroke-width="3" opacity=".5" fill="none"/>
+        <circle cx="198" cy="56" r="3" fill="#fff3b0"/>${wheel(54,15)}${wheel(154,15)}`;
+    } else if (car.id === 'bolt') {      // 楔形超跑 + 大尾翼
+      inner = `<rect x="8" y="34" width="40" height="5" rx="2" fill="${dk}"/>
+        <rect x="10" y="34" width="5" height="18" fill="${dk}"/><rect x="40" y="34" width="5" height="18" fill="${dk}"/>
+        <path d="M18,62 L74,46 C108,33 152,33 200,56 L200,62 Z" fill="${c}" stroke="${dk}" stroke-width="2"/>
+        <path d="M96,42 C118,34 146,36 168,50 L120,48 Z" fill="${gl}"/>
+        <path d="M30,56 L192,54" stroke="${hl}" stroke-width="1.6" opacity=".85" fill="none"/>
+        <circle cx="198" cy="56" r="3" fill="#bfefff"/>${wheel(66,15)}${wheel(158,15)}`;
+    } else if (car.id === 'phantom') {   // 未來感平滑座艙
+      inner = `<path d="M14,62 C18,46 60,38 100,37 C152,36 186,42 202,58 L202,62 Z" fill="${c}" stroke="${dk}" stroke-width="2"/>
+        <path d="M68,40 C100,30 152,32 182,50 L118,46 L88,46 Z" fill="${gl}"/>
+        <path d="M20,58 C82,52 152,52 198,57" stroke="${hl}" stroke-width="2.2" opacity=".7" fill="none"/>
+        <circle cx="200" cy="55" r="3" fill="#e6c6ff"/>${wheel(60,14)}${wheel(154,14)}`;
+    } else {                             // inferno:寬體賽車 + 高尾翼 + 前定風翼
+      inner = `<rect x="6" y="30" width="46" height="6" rx="2" fill="${dk}"/>
+        <rect x="8" y="30" width="6" height="26" fill="${dk}"/><rect x="46" y="30" width="6" height="26" fill="${dk}"/>
+        <path d="M14,64 L40,54 C60,40 96,34 132,36 C170,38 196,46 204,58 L204,64 Z" fill="${c}" stroke="${dk}" stroke-width="2"/>
+        <path d="M92,38 C116,30 146,32 170,48 L120,46 Z" fill="${gl}"/>
+        <path d="M200,60 L210,64 L200,67 Z" fill="${dk}"/>
+        <path d="M26,58 L192,54" stroke="${hl}" stroke-width="1.6" opacity=".85" fill="none"/>
+        <circle cx="202" cy="55" r="3" fill="#ffd9a0"/>${wheel(66,16)}${wheel(158,16)}`;
+    }
+    return `<svg viewBox="0 0 212 92" preserveAspectRatio="xMidYMid meet">${inner}</svg>`;
+  }
+
+  // 難度選擇器
+  function renderDiffs() {
+    const row = $('diffRow'); row.innerHTML = '';
+    for (const d of DIFFS) {
+      const sel = d.id === selectedDiffId;
+      const chip = document.createElement('div');
+      chip.className = 'diffChip' + (sel ? ' sel' : '');
+      chip.textContent = d.name;
+      chip.style.borderColor = d.color;
+      if (sel) chip.style.background = d.color;
+      chip.onclick = () => { selectedDiffId = d.id; saveProgress(); renderDiffs(); };
+      row.appendChild(chip);
+    }
+    $('diffDesc').textContent = currentDiff().desc;
+  }
+
   function openGarage() { SFX.init(); SFX.resume(); renderGarage();
     $('startScreen').classList.add('hidden'); $('overScreen').classList.add('hidden'); $('garageScreen').classList.remove('hidden'); }
   function closeGarage() { $('garageScreen').classList.add('hidden'); $('startScreen').classList.remove('hidden'); }
   $('garageBtn').addEventListener('click', openGarage);
   $('garageBtn2').addEventListener('click', openGarage);
   $('garageBack').addEventListener('click', closeGarage);
+
+  // 首頁場景選單
+  function buildSceneSelect() {
+    const sel = $('sceneSelect'); sel.innerHTML = '';
+    const r = document.createElement('option'); r.value = 'random'; r.textContent = '🎲 隨機場景'; sel.appendChild(r);
+    SCENES.forEach((s, i) => { const o = document.createElement('option'); o.value = String(i); o.textContent = s.name; sel.appendChild(o); });
+    sel.value = selectedScene;
+    sel.onchange = () => { selectedScene = sel.value; saveProgress(); };
+  }
+  renderDiffs(); buildSceneSelect(); // 首頁選擇器初始化
 
   if (isTouch) {
     document.getElementById('startHint').innerHTML = '點左右兩鈕變換車道 ‧ 按住 NITRO 加速<br>貼著別的車閃過 = Near Miss 加分';
